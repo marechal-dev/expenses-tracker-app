@@ -1,12 +1,14 @@
-import { useContext, useLayoutEffect } from "react";
-import { StyleSheet, TextInput, View } from "react-native";
+import { useContext, useLayoutEffect, useState } from "react";
+import { StyleSheet, View } from "react-native";
 
 import { colors } from "../theme/colors";
 
 import { IconButton } from "../components/UI/IconButton"
-import { Button } from "../components/UI/Button";
 import { ExpensesContext } from "../store/context/expenses-context";
 import { ExpenseForm } from "../components/ManageExpense/ExpenseForm";
+import { storeExpense, updateExpense as updateExpenseFirebase, deleteExpense as deleteExpenseFirebase } from "../utils/requests";
+import { LoadingOverlay } from "../components/UI/LoadingOverlay";
+import { ErrorOverlay } from "../components/UI/ErrorOverlay";
 
 const styles = StyleSheet.create({
   container: {
@@ -25,6 +27,8 @@ const styles = StyleSheet.create({
 
 export function ManageExpense({ navigation, route }) {
   const { expenses, addExpense, updateExpense, deleteExpense } = useContext(ExpensesContext)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState()
 
   const expenseId = route.params?.expenseId
   const isEditing = !!expenseId
@@ -33,23 +37,45 @@ export function ManageExpense({ navigation, route }) {
     expense => expense.id === expenseId
   )
 
-  function handleDeleteButtonPress() {
-    deleteExpense(expenseId);
-    navigation.goBack();
+  async function handleDeleteButtonPress() {
+    setIsSubmitting(true)
+    try {
+      await deleteExpenseFirebase(expenseId)
+      deleteExpense(expenseId);
+      navigation.goBack();
+    } catch (error) {
+      setError("Could not delete your expense!")      
+    }
+    setIsSubmitting(false)
   }
 
   function handleCancelButtonPress() {
     navigation.goBack()
   }
 
-  function handleConfirm(expenseData) {
-    if (isEditing) {
-      updateExpense(expenseId, expenseData)
-    } else {
-      addExpense(expenseData)
+  async function handleConfirm(expenseData) {
+    setIsSubmitting(true)
+    try {
+      if (isEditing) {
+        updateExpense(expenseId, expenseData)
+        await updateExpenseFirebase(expenseId, expenseData)
+      } else {
+        const id = await storeExpense(expenseData)
+        addExpense({
+          id,
+          ...expenseData
+        })
+      }
+      
+      navigation.goBack()
+    } catch (error) {
+      setError("Could not save your expense, please try again later!")
+      setIsSubmitting(false)
     }
-    
-    navigation.goBack()
+  }
+
+  function handleOnErrorOverlayButtonPress() {
+    setError(null)
   }
 
   useLayoutEffect(() => {
@@ -57,6 +83,16 @@ export function ManageExpense({ navigation, route }) {
       title: isEditing ? "Edit Expense" : "Add Expense"
     })
   }, [navigation, isEditing])
+
+  if (isSubmitting) {
+    return (
+      <LoadingOverlay />
+    )
+  }
+
+  if (error && !isSubmitting) {
+    return <ErrorOverlay message={error} onConfirm={handleOnErrorOverlayButtonPress} />
+  }
 
   return (
     <View style={styles.container}>
